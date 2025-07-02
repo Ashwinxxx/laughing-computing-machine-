@@ -18,4 +18,31 @@ Home Screen:
 
 ✏️ Text area for user input
 
-💬 Shows clickable word suggestions (next word predictions)
+💬 Shows clickable word suggestions (next word predictions)Python 3.8+
+
+Streamlit
+
+PyTorch
+
+NLTK
+
+Requests
+
+Other Python standard packages
+
+Data Source: Sherlock Holmes stories (from Project Gutenberg)
+
+Preprocessing: Basic tokenization, cleaning, and vocabulary building
+
+Model Architecture:
+
+Embedding Layer
+
+LSTM Layer
+
+Fully Connected (Linear) Output Layer
+
+Training: On small data subset to keep demo fast
+
+Prediction: Top-K next word suggestions using softma
+
