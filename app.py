@@ -21,18 +21,58 @@ TEXT_URL = 'https://www.gutenberg.org/files/1661/1661-0.txt'  # Sherlock Holmes
 # --- NLTK Downloads (Fixed) ---
 @st.cache_resource
 def download_nltk_data():
+    import ssl
+    import os
+    
+    # Handle SSL certificate issues
     try:
-        nltk.data.find("tokenizers/punkt_tab")
-        st.success("✅ NLTK 'punkt_tab' tokenizer already available.")
-    except LookupError:
-        st.warning("⚠️ 'punkt_tab' tokenizer not found. Downloading...")
+        _create_unverified_https_context = ssl._create_unverified_context
+    except AttributeError:
+        pass
+    else:
+        ssl._create_default_https_context = _create_unverified_https_context
+    
+    # Set NLTK data path
+    nltk_data_dir = os.path.join(os.path.expanduser("~"), "nltk_data")
+    if not os.path.exists(nltk_data_dir):
+        os.makedirs(nltk_data_dir)
+    
+    # Try multiple tokenizers
+    tokenizers_to_try = ['punkt_tab', 'punkt']
+    
+    for tokenizer in tokenizers_to_try:
         try:
-            nltk.download("punkt_tab", quiet=True)
-            st.success("✅ Downloaded 'punkt_tab' tokenizer successfully!")
-        except Exception as e:
-            st.warning("⚠️ Trying fallback 'punkt' tokenizer...")
-            nltk.download("punkt", quiet=True)
-            st.success("✅ Downloaded 'punkt' tokenizer successfully!")
+            nltk.data.find(f"tokenizers/{tokenizer}")
+            st.success(f"✅ NLTK '{tokenizer}' tokenizer already available.")
+            return
+        except LookupError:
+            st.warning(f"⚠️ '{tokenizer}' tokenizer not found. Downloading...")
+            try:
+                nltk.download(tokenizer, quiet=True)
+                st.success(f"✅ Downloaded '{tokenizer}' tokenizer successfully!")
+                return
+            except Exception as e:
+                st.warning(f"⚠️ Failed to download '{tokenizer}': {str(e)}")
+                continue
+    
+    # If all fail, show error
+    st.error("❌ Failed to download NLTK tokenizers. Using fallback tokenization.")
+
+# --- Fallback Tokenization ---
+def simple_tokenize(text):
+    """Simple tokenization fallback if NLTK fails"""
+    import re
+    # Simple word tokenization using regex
+    tokens = re.findall(r'\b\w+\b', text.lower())
+    return tokens
+
+# --- Safe Tokenization Wrapper ---
+def safe_word_tokenize(text):
+    """Tokenize text with fallback"""
+    try:
+        return word_tokenize(text)
+    except:
+        return simple_tokenize(text)
 
 # --- Data Loading and Preprocessing ---
 @st.cache_resource
@@ -49,7 +89,7 @@ def load_and_preprocess_data(text_url, sequence_length, training_data_limit):
     text = re.sub(r'[^a-z\s]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    tokens = word_tokenize(text)
+    tokens = safe_word_tokenize(text)
     word_counts = Counter(tokens)
     vocab = ['<unk>'] + sorted(word_counts, key=word_counts.get, reverse=True)
     word2idx = {word: idx for idx, word in enumerate(vocab)}
@@ -120,7 +160,7 @@ def train_model(vocab_size, encoded_data, embed_dim, hidden_dim, epochs):
 # --- Prediction ---
 def suggest_next_words(model, text_prompt, encode_func, word2idx, idx2word, sequence_length, top_k=3):
     model.eval()
-    tokens = word_tokenize(text_prompt.lower())
+    tokens = safe_word_tokenize(text_prompt.lower())
 
     if len(tokens) == 0:
         return []
