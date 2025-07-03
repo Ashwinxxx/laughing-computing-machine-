@@ -22,12 +22,17 @@ TEXT_URL = 'https://www.gutenberg.org/files/1661/1661-0.txt'  # Sherlock Holmes
 @st.cache_resource
 def download_nltk_data():
     try:
-        nltk.data.find("tokenizers/punkt")
-        st.success("✅ NLTK 'punkt' tokenizer already available.")
+        nltk.data.find("tokenizers/punkt_tab")
+        st.success("✅ NLTK 'punkt_tab' tokenizer already available.")
     except LookupError:
-        st.warning("⚠️ 'punkt' tokenizer not found. Downloading...")
-        nltk.download("punkt", quiet=True)
-        st.success("✅ Downloaded 'punkt' tokenizer successfully!")
+        st.warning("⚠️ 'punkt_tab' tokenizer not found. Downloading...")
+        try:
+            nltk.download("punkt_tab", quiet=True)
+            st.success("✅ Downloaded 'punkt_tab' tokenizer successfully!")
+        except Exception as e:
+            st.warning("⚠️ Trying fallback 'punkt' tokenizer...")
+            nltk.download("punkt", quiet=True)
+            st.success("✅ Downloaded 'punkt' tokenizer successfully!")
 
 # --- Data Loading and Preprocessing ---
 @st.cache_resource
