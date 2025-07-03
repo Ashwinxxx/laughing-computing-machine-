@@ -49,11 +49,19 @@ def load_and_preprocess_data(text_url, sequence_length, training_data_limit):
         st.error(f"Error downloading text from {text_url}: {e}")
         st.stop() # Stop the app if data can't be loaded
     
-    # Basic text cleaning
-    text = re.sub(r'[^a-z\s]', '', text) # Remove non-alphabetic characters
+    # Basic text cleaning: Keep letters, spaces, apostrophes, and hyphens
+    text = re.sub(r'[^a-z\s\'-]', '', text) 
     text = re.sub(r'\s+', ' ', text).strip() # Replace multiple spaces with single space
 
-    tokens = word_tokenize(text)
+    if not text:
+        st.error("Error: Text data is empty after cleaning. Cannot proceed.")
+        st.stop()
+
+    tokens = word_tokenize(text, language='english') # Explicitly set language
+
+    if not tokens:
+        st.error("Error: No tokens extracted from the text. Cannot proceed.")
+        st.stop()
     
     # Build vocabulary
     word_counts = Counter(tokens)
@@ -65,6 +73,11 @@ def load_and_preprocess_data(text_url, sequence_length, training_data_limit):
 
     # Prepare input-output sequences
     data = []
+    # Ensure there are enough tokens to create at least one sequence
+    if len(tokens) < sequence_length:
+        st.error(f"Error: Not enough tokens ({len(tokens)}) to create sequences of length {sequence_length}.")
+        st.stop()
+
     for i in range(len(tokens) - sequence_length):
         input_seq = tokens[i:i + sequence_length - 1]
         target = tokens[i + sequence_length - 1]
@@ -108,6 +121,10 @@ def train_model(vocab_size, encoded_data, embed_dim, hidden_dim, epochs, trainin
 
     # Limit data for training in the demo to speed it up
     training_data_subset = encoded_data[:training_data_limit]
+    
+    if not training_data_subset:
+        st.error("Error: No training data available after limiting. Adjust TRAINING_DATA_LIMIT or check data loading.")
+        st.stop()
 
     progress_text = st.empty()
     progress_bar = st.progress(0)
@@ -141,7 +158,7 @@ def train_model(vocab_size, encoded_data, embed_dim, hidden_dim, epochs, trainin
 # --- Prediction Function ---
 def suggest_next_words(model, text_prompt, encode_func, word2idx, idx2word, sequence_length, top_k=3):
     model.eval()
-    tokens = word_tokenize(text_prompt.lower())
+    tokens = word_tokenize(text_prompt.lower(), language='english') # Explicitly set language
     
     # Handle short inputs
     if len(tokens) == 0:
