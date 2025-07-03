@@ -6,3 +6,4 @@ seaborn
 scikit-learn
 torch
 nltk
+requests
