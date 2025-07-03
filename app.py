@@ -1,4 +1,19 @@
 import streamlit as st
+import streamlit as st
+import nltk
+
+@st.cache_resource
+def download_nltk_data():
+    try:
+        nltk.download("punkt")
+        nltk.download("stopwords")
+    except Exception as e:
+        st.error(f"❌ NLTK download failed: {e}")
+
+download_nltk_data()
+
+# Now you can use nltk functions like:
+from nltk.tokenize import word_tokenize
 import nltk
 from nltk.tokenize import word_tokenize
 from collections import Counter
