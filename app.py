@@ -1,16 +1,25 @@
-import streamlit as st
+
 import streamlit as st
 import nltk
 
 @st.cache_resource
 def download_nltk_data():
     try:
-        nltk.download("punkt")
-        nltk.download("stopwords")
+        nltk.download("punkt", quiet=True)
     except Exception as e:
-        st.error(f"❌ NLTK download failed: {e}")
+        st.warning(f"⚠️ Failed to download 'punkt': {e}")
 
-download_nltk_data()
+    try:
+        nltk.data.find("tokenizers/punkt")
+    except LookupError:
+        nltk.download("punkt", quiet=True)
+
+    try:
+        nltk.download("stopwords", quiet=True)
+    except Exception as e:
+        st.warning(f"⚠️ Failed to download 'stopwords': {e}")
+
+    st.success("✅ NLTK data downloaded successfully!")
 
 # Now you can use nltk functions like:
 from nltk.tokenize import word_tokenize
