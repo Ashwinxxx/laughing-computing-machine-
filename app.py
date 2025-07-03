@@ -1,5 +1,16 @@
 import streamlit as st
 import nltk
+
+# Ensure punkt is available before using tokenizers
+@st.cache_resource
+def ensure_nltk_ready():
+    nltk.download("punkt", quiet=True)
+    nltk.download("stopwords", quiet=True)
+    st.success("✅ NLTK resources downloaded!")
+
+ensure_nltk_ready()  # Run once at the top of app
+
+# Now you can safely import and use tokenizers
 from nltk.tokenize import word_tokenize
 from collections import Counter
 import requests
