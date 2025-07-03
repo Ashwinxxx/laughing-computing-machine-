@@ -81,7 +81,6 @@ class PredictiveKeyboard(nn.Module):
         return self.fc(output[:, -1, :])
 
 # --- Training ---
-@st.cache_resource
 def train_model(vocab_size, encoded_data, embed_dim, hidden_dim, epochs):
     model = PredictiveKeyboard(vocab_size, embed_dim, hidden_dim)
     criterion = nn.CrossEntropyLoss()
@@ -148,6 +147,10 @@ Train an LSTM on Sherlock Holmes and get next-word predictions!
 # Initialize session state
 if 'current_text' not in st.session_state:
     st.session_state.current_text = ""
+if 'model_trained' not in st.session_state:
+    st.session_state.model_trained = False
+if 'trained_model' not in st.session_state:
+    st.session_state.trained_model = None
 
 # Function to add word to current text
 def add_word_to_text(word):
@@ -159,7 +162,13 @@ def add_word_to_text(word):
 # Run setup - no external downloads needed
 try:
     vocab_size, word2idx, idx2word, encoded_data, encode_func = load_and_preprocess_data(TEXT_URL, SEQUENCE_LENGTH, TRAINING_DATA_LIMIT)
-    model = train_model(vocab_size, encoded_data, EMBED_DIM, HIDDEN_DIM, EPOCHS)
+    
+    # Train model only once and store in session state
+    if not st.session_state.model_trained:
+        st.session_state.trained_model = train_model(vocab_size, encoded_data, EMBED_DIM, HIDDEN_DIM, EPOCHS)
+        st.session_state.model_trained = True
+    
+    model = st.session_state.trained_model
     
     st.markdown("---")
     st.subheader("Start Typing:")
