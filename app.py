@@ -1,72 +1,70 @@
 import streamlit as st
 import nltk
-from nltk.tokenize import TreebankWordTokenizer
-from collections import Counter
 import requests
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import random
+import os
 import re
+from collections import Counter
+from nltk.tokenize import TreebankWordTokenizer
 
-# --- Config ---
+# --- Configuration ---
 SEQUENCE_LENGTH = 10
 EMBED_DIM = 64
 HIDDEN_DIM = 128
 EPOCHS = 5
 TRAINING_DATA_LIMIT = 10000
-TEXT_URL = "https://www.gutenberg.org/files/1661/1661-0.txt"
+TEXT_URL = 'https://www.gutenberg.org/files/1661/1661-0.txt'
 
-# --- NLTK Prep ---
+# --- NLTK Downloads ---
 @st.cache_resource
-def prepare_nltk():
+def download_nltk_data():
     nltk.download("punkt", quiet=True)
     nltk.download("stopwords", quiet=True)
-    st.success("✅ NLTK data ready!")
+    st.success("✅ NLTK resources downloaded!")
 
-prepare_nltk()
-
-# Use tokenizer that doesn’t trigger punkt_tab bug
+# --- Tokenizer ---
 tokenizer = TreebankWordTokenizer()
 
-# --- Data Loader ---
+# --- Data Loading and Preprocessing ---
 @st.cache_resource
-def load_and_preprocess_data(url, sequence_len, data_limit):
+def load_and_preprocess_data(text_url, sequence_length, training_data_limit):
     st.info("📚 Loading & preprocessing Sherlock Holmes text...")
-    
+
     try:
-        response = requests.get(url)
+        response = requests.get(text_url)
         response.raise_for_status()
         text = response.content.decode('utf-8').lower()
     except Exception as e:
-        st.error(f"Failed to load text: {e}")
+        st.error(f"❌ Failed to load text: {e}")
         st.stop()
-    
+
     text = re.sub(r'[^a-z\s]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
     tokens = tokenizer.tokenize(text)
     word_counts = Counter(tokens)
     vocab = ['<unk>'] + sorted(word_counts, key=word_counts.get, reverse=True)
-    
-    word2idx = {w: i for i, w in enumerate(vocab)}
-    idx2word = {i: w for w, i in word2idx.items()}
+    word2idx = {word: idx for idx, word in enumerate(vocab)}
+    idx2word = {idx: word for word, idx in word2idx.items()}
     vocab_size = len(vocab)
 
-    def encode(seq):
-        return [word2idx.get(w, word2idx['<unk>']) for w in seq]
-
     data = []
-    for i in range(len(tokens) - sequence_len):
-        input_seq = tokens[i:i + sequence_len - 1]
-        target = tokens[i + sequence_len - 1]
+    for i in range(len(tokens) - sequence_length):
+        input_seq = tokens[i:i + sequence_length - 1]
+        target = tokens[i + sequence_length - 1]
         data.append((input_seq, target))
 
-    encoded_data = [(torch.tensor(encode(inp)), torch.tensor(word2idx.get(tgt, word2idx['<unk>'])))
-                    for inp, tgt in data]
-    
-    st.success(f"✅ Tokens: {len(tokens)}, Vocab: {vocab_size}")
+    def encode(seq):
+        return [word2idx.get(word, word2idx['<unk>']) for word in seq]
+
+    encoded_data = [(torch.tensor(encode(inp)), torch.tensor(word2idx.get(target, word2idx['<unk>'])))
+                    for inp, target in data]
+
+    st.success(f"✅ Data ready. Tokens: {len(tokens)}, Vocab Size: {vocab_size}")
     return vocab_size, word2idx, idx2word, encoded_data, encode
 
 # --- Model ---
@@ -84,58 +82,61 @@ class PredictiveKeyboard(nn.Module):
 
 # --- Train Model ---
 @st.cache_resource
-def train_model(vocab_size, data, embed_dim, hidden_dim, epochs, limit):
+def train_model(vocab_size, encoded_data, embed_dim, hidden_dim, epochs, training_data_limit):
+    st.info("🧠 Training model...")
     model = PredictiveKeyboard(vocab_size, embed_dim, hidden_dim)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.005)
-    subset = data[:limit]
-    
+    data_subset = encoded_data[:training_data_limit]
+
     bar = st.progress(0)
-    text = st.empty()
+    msg = st.empty()
 
     for epoch in range(epochs):
+        random.shuffle(data_subset)
         total_loss = 0
-        random.shuffle(subset)
-        for i, (inp, tgt) in enumerate(subset):
-            inp = inp.unsqueeze(0)
-            output = model(inp)
-            loss = criterion(output, tgt.unsqueeze(0))
-
+        for i, (input_seq, target) in enumerate(data_subset):
+            input_seq = input_seq.unsqueeze(0)
+            output = model(input_seq)
+            loss = criterion(output, target.unsqueeze(0))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
 
             if i % 100 == 0:
-                bar.progress((i + 1) / len(subset))
-                text.text(f"Epoch {epoch+1}/{epochs}, Step {i+1}/{len(subset)}, Loss: {loss.item():.4f}")
+                pct = int((i+1) / len(data_subset) * 100)
+                bar.progress(min(pct, 100))
+                msg.text(f"Epoch {epoch+1}/{epochs} | Step {i+1}/{len(data_subset)} | Loss: {loss.item():.4f}")
+        st.write(f"✅ Epoch {epoch+1} completed. Avg Loss: {total_loss / len(data_subset):.4f}")
 
-        st.write(f"✅ Epoch {epoch+1} Avg Loss: {total_loss/len(subset):.4f}")
     bar.empty()
+    msg.empty()
+    st.success("✅ Training complete!")
     return model
 
-# --- Suggest ---
-def suggest_next_words(model, prompt, encode, word2idx, idx2word, sequence_len, top_k=3):
+# --- Prediction ---
+def suggest_next_words(model, prompt, encode_func, word2idx, idx2word, sequence_length, top_k=3):
     model.eval()
     tokens = tokenizer.tokenize(prompt.lower())
-
     if len(tokens) == 0:
         return []
-
-    seq = tokens[-(sequence_len - 1):]
-    inp = torch.tensor(encode(seq)).unsqueeze(0)
-
+    input_seq = tokens[-(sequence_length - 1):]
+    input_tensor = torch.tensor(encode_func(input_seq)).unsqueeze(0)
     with torch.no_grad():
-        output = model(inp)
+        output = model(input_tensor)
         probs = F.softmax(output, dim=1).squeeze()
-        top_ids = torch.topk(probs, top_k).indices.tolist()
+        top_indices = torch.topk(probs, top_k).indices.tolist()
+    return [idx2word[i] for i in top_indices]
 
-    return [idx2word[i] for i in top_ids]
-
-# --- UI ---
-st.set_page_config(layout="centered", page_title="Smart Predictive Keyboard")
+# --- Streamlit UI ---
+st.set_page_config(page_title="Predictive Keyboard", layout="wide")
 st.title("✍️ Smart Predictive Keyboard")
-st.markdown("Train an LSTM on Sherlock Holmes and get next-word predictions!")
+st.markdown("""
+Train an LSTM on Sherlock Holmes and get next-word predictions!
+""")
+
+download_nltk_data()
 
 vocab_size, word2idx, idx2word, encoded_data, encode_func = load_and_preprocess_data(
     TEXT_URL, SEQUENCE_LENGTH, TRAINING_DATA_LIMIT
@@ -145,41 +146,48 @@ model = train_model(
     vocab_size, encoded_data, EMBED_DIM, HIDDEN_DIM, EPOCHS, TRAINING_DATA_LIMIT
 )
 
-# Text box
+st.markdown("---")
+st.header("Start Typing Here:")
+
 if "current_text" not in st.session_state:
     st.session_state.current_text = ""
 
-st.header("Start Typing")
 user_input = st.text_area("Your Sentence:", value=st.session_state.current_text, height=150)
 
 if user_input != st.session_state.current_text:
     st.session_state.current_text = user_input
 
-st.subheader("Next Word Suggestions")
+st.subheader("Next Word Suggestions:")
+suggestions_container = st.empty()
 
-def append_suggestion(word):
-    st.session_state.current_text += " " + word
+def append_suggestion(suggestion):
+    st.session_state.current_text += " " + suggestion
     st.experimental_rerun()
-
-suggestions_area = st.empty()
 
 if st.session_state.current_text:
     try:
         suggestions = suggest_next_words(
             model, st.session_state.current_text, encode_func, word2idx, idx2word, SEQUENCE_LENGTH
         )
-        cols = suggestions_area.columns(len(suggestions))
-        for i, word in enumerate(suggestions):
-            cols[i].button(word, on_click=append_suggestion, args=(word,), key=f"btn_{i}")
+        if suggestions:
+            cols = suggestions_container.columns(len(suggestions))
+            for i, word in enumerate(suggestions):
+                cols[i].button(word, on_click=append_suggestion, args=(word,), key=f"suggest_{i}")
+        else:
+            suggestions_container.info("Try typing a longer sentence.")
     except Exception as e:
-        st.error(f"⚠️ Suggestion Error: {e}")
+        suggestions_container.error(f"⚠️ Error: {e}")
 else:
-    suggestions_area.info("Type something to get next-word suggestions!")
+    suggestions_container.info("Type something above to get predictions.")
 
 if st.button("Clear Text"):
     st.session_state.current_text = ""
     st.experimental_rerun()
 
 st.markdown("---")
-st.markdown("Built with PyTorch, NLTK, and Streamlit.")
-
+st.markdown("### How it Works:")
+st.markdown("""
+- LSTM model trained on public domain Sherlock Holmes text
+- Predicts the most likely next word based on your sentence
+- Uses PyTorch and NLTK (safe tokenizer used to avoid punkt_tab error)
+""")
