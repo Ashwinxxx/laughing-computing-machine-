@@ -37,16 +37,21 @@ def load_and_preprocess_data(text_url, sequence_length, training_data_limit):
         st.error(f"Error downloading text: {e}")
         st.stop()
 
+    # Clean the text
     text = re.sub(r'[^a-z\s]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
+    # Tokenize using our simple function
     tokens = word_tokenize(text)
+    
+    # Build vocabulary
     word_counts = Counter(tokens)
     vocab = ['<unk>'] + sorted(word_counts, key=word_counts.get, reverse=True)
     word2idx = {word: idx for idx, word in enumerate(vocab)}
     idx2word = {idx: word for word, idx in word2idx.items()}
     vocab_size = len(vocab)
 
+    # Create training data
     data = []
     for i in range(len(tokens) - sequence_length):
         input_seq = tokens[i:i + sequence_length - 1]
@@ -115,7 +120,13 @@ def suggest_next_words(model, text_prompt, encode_func, word2idx, idx2word, sequ
 
     if len(tokens) == 0:
         return []
+    
     input_seq = tokens[-(sequence_length - 1):] if len(tokens) >= sequence_length - 1 else tokens
+    
+    # Handle empty sequence
+    if len(input_seq) == 0:
+        return []
+        
     input_tensor = torch.tensor(encode_func(input_seq)).unsqueeze(0)
 
     with torch.no_grad():
@@ -131,16 +142,10 @@ st.title("✍️ Smart Predictive Keyboard")
 
 st.markdown("""
 Train an LSTM on Sherlock Holmes and get next-word predictions!  
-*Uses simple regex tokenization - no NLTK downloads required.*
+*Uses simple regex tokenization - no external dependencies.*
 """)
 
-# Run setup - no NLTK downloads needed
-vocab_size, word2idx, idx2word, encoded_data, encode_func = load_and_preprocess_data(TEXT_URL, SEQUENCE_LENGTH, TRAINING_DATA_LIMIT)
-model = train_model(vocab_size, encoded_data, EMBED_DIM, HIDDEN_DIM, EPOCHS)
-
-st.markdown("---")
-st.subheader("Start Typing:")
-
+# Initialize session state
 if 'current_text' not in st.session_state:
     st.session_state.current_text = ""
 
@@ -151,31 +156,43 @@ def add_word_to_text(word):
     else:
         st.session_state.current_text = word
 
-user_input = st.text_area("Your text:", value=st.session_state.current_text, height=150, key="text_input")
+# Run setup - no external downloads needed
+try:
+    vocab_size, word2idx, idx2word, encoded_data, encode_func = load_and_preprocess_data(TEXT_URL, SEQUENCE_LENGTH, TRAINING_DATA_LIMIT)
+    model = train_model(vocab_size, encoded_data, EMBED_DIM, HIDDEN_DIM, EPOCHS)
+    
+    st.markdown("---")
+    st.subheader("Start Typing:")
 
-# Update session state when user types
-if user_input != st.session_state.current_text:
-    st.session_state.current_text = user_input
+    user_input = st.text_area("Your text:", value=st.session_state.current_text, height=150, key="text_input")
 
-st.subheader("Suggestions:")
-suggestions_container = st.empty()
+    # Update session state when user types
+    if user_input != st.session_state.current_text:
+        st.session_state.current_text = user_input
 
-if st.session_state.current_text:
-    try:
-        suggestions = suggest_next_words(model, st.session_state.current_text, encode_func, word2idx, idx2word, SEQUENCE_LENGTH)
-        if suggestions:
-            cols = suggestions_container.columns(len(suggestions))
-            for i, suggestion in enumerate(suggestions):
-                if cols[i].button(suggestion, key=f"suggestion_{i}_{suggestion}"):
-                    add_word_to_text(suggestion)
-                    st.rerun()
-        else:
-            suggestions_container.info("Try typing a longer sentence.")
-    except Exception as e:
-        suggestions_container.error(f"Error generating suggestions: {e}")
-else:
-    suggestions_container.info("Start typing above to get suggestions.")
+    st.subheader("Suggestions:")
+    suggestions_container = st.empty()
 
-if st.button("Clear Text"):
-    st.session_state.current_text = ""
-    st.rerun()
+    if st.session_state.current_text:
+        try:
+            suggestions = suggest_next_words(model, st.session_state.current_text, encode_func, word2idx, idx2word, SEQUENCE_LENGTH)
+            if suggestions:
+                cols = suggestions_container.columns(len(suggestions))
+                for i, suggestion in enumerate(suggestions):
+                    if cols[i].button(suggestion, key=f"suggestion_{i}_{suggestion}"):
+                        add_word_to_text(suggestion)
+                        st.rerun()
+            else:
+                suggestions_container.info("Try typing a longer sentence.")
+        except Exception as e:
+            suggestions_container.error(f"Error generating suggestions: {e}")
+    else:
+        suggestions_container.info("Start typing above to get suggestions.")
+
+    if st.button("Clear Text"):
+        st.session_state.current_text = ""
+        st.rerun()
+
+except Exception as e:
+    st.error(f"Error loading the application: {e}")
+    st.info("Please check your internet connection and try refreshing the page.")
